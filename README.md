@@ -63,7 +63,7 @@ class DataGenerator(object):
 同样地，有需要的话请自行在项目中import。
 
 ### losses.py
-根据ICIAR2018_BACH_Challenge乳腺癌分类比赛项目而新家的loss函数，假设你的场景也是这样：分类标签的数字大小能代表错分类的容忍度关系，假设有0,1,2,3四类，可以相对容忍类别高的预测成类别低的(如1类预测为0类，3类预测成1类等)，但不能容忍类别低的预测成类别高的，对此情况需要进行额外的惩罚，(如1类预测成2类，0类预测成3类)，其中低类别预测为高类别的，惩罚要比低列表预测为次高类别的更甚。
+根据ICIAR2018_BACH_Challenge乳腺癌分类比赛项目而新写的loss函数，假设你的场景也是这样：分类标签的数字大小能代表错分类的容忍度关系，假设有0,1,2,3四类(简而言之，0是绝对正常，此外越往上越严重)，可以相对容忍类别高的预测成类别低的(如1类预测为0类，3类预测成1类等)，但不能容忍类别低的预测成类别高的，对此情况需要进行额外的惩罚，(如1类预测成2类，0类预测成3类)，其中低类别预测为高类别的，惩罚要比低列表预测为次高类别的更甚(以两者的差的绝对值作为惩罚标准)。
 主要是在这个文件增加一个新的loss函数定义：
 ```python
 def weight_categorical_crossentropy(y_true, y_pred):
@@ -112,7 +112,8 @@ def weight_categorical_crossentropy(target, output, from_logits=False, axis=-1):
         # manual computation of crossentropy
         _epsilon = _to_tensor(epsilon(), output.dtype.base_dtype)
         output = tf.clip_by_value(output, _epsilon, 1. - _epsilon)
-        return - tf.reduce_sum(target * tf.log(output)*(1 + tf.cast(tf.greater(tf.argmax(output),tf.argmax(target)),tf.float64)), axis)
+        return - tf.reduce_sum(target * tf.log(output)*(1 + tf.cast(tf.greater(tf.argmax(output),tf.argmax(target)),tf.float64) \
+                                               * tf.abs(tf.argmax(output) - tf.argmax(target))), axis)
     else:
         return tf.nn.softmax_cross_entropy_with_logits(labels=target,
                                                        logits=output)

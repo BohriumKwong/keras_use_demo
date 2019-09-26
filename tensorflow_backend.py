@@ -3252,7 +3252,8 @@ def weight_categorical_crossentropy(target, output, from_logits=False, axis=-1):
         # manual computation of crossentropy
         _epsilon = _to_tensor(epsilon(), output.dtype.base_dtype)
         output = tf.clip_by_value(output, _epsilon, 1. - _epsilon)
-        return - tf.reduce_sum(target * tf.log(output)*(1 + tf.cast(tf.greater(tf.argmax(output),tf.argmax(target)),tf.float64)), axis)
+        return - tf.reduce_sum(target * tf.log(output)*(1 + tf.cast(tf.greater(tf.argmax(output),tf.argmax(target)),tf.float64) \
+                                               * tf.abs(tf.argmax(output) - tf.argmax(target))), axis)
     else:
         return tf.nn.softmax_cross_entropy_with_logits(labels=target,
                                                        logits=output)
