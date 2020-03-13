@@ -13,6 +13,7 @@ import scipy.ndimage as ndi
 from six.moves import range
 
 from skimage import exposure, color
+import cv2
 from skimage.filters import gaussian
 from skimage import data, img_as_float, img_as_ubyte
 
@@ -503,8 +504,6 @@ class DataGenerator(object):
         """
         if self.preprocessing_function:
             x = self.preprocessing_function(x)
-        if self.rescale:
-            x *= self.rescale
         # x is a single image, so it doesn't have image number at index 0
         img_channel_axis = self.channel_axis - 1
         if self.samplewise_center:
@@ -538,6 +537,8 @@ class DataGenerator(object):
                               '`zca_whitening`, but it hasn\'t'
                               'been fit on any training data. Fit it '
                               'first by calling `.fit(numpy_data)`.')
+        if self.rescale:
+            x *= self.rescale
                 
         return x
 
@@ -630,15 +631,17 @@ class DataGenerator(object):
                 x = flip_axis(x, img_row_axis)
         
         if self.stain_transformation:
-            if np.random.random() > 0.5:
-                x = color.rgb2hed(x)
-                scale = np.random.uniform(low = 0.95, high = 1.05) 
-                x = scale * x
-                x = color.hed2rgb(x)
+            if np.random.binomial(1,0.8):
+#                x = color.rgb2hed(x)
+                x = cv2.cvtColor(np.uint8(x),cv2.COLOR_RGB2HSV)
+                scale = np.random.uniform(low = 0.98, high = 1.18) 
+                x[:,:,0] = x[:,:,0] * scale
+                x = cv2.cvtColor(np.uint8(x),cv2.COLOR_HSV2RGB)
+#                x = color.hed2rgb(x)
             else:
                 pass
 
-        return x
+        return np.float16(x)
 
     def fit(self, x,
             augment=False,
