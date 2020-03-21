@@ -32,7 +32,7 @@ Epoch 10/10
 33497/33497 [==============================] - 15992s 477ms/step - loss: 0.6079 - precision: 0.7972 - recall: 0.7972 - fmeasure: 0.7972 - val_loss: 0.5196 - val_precision: 0.8090 - val_recall: 0.8090 - val_fmeasure: 0.8090
 
 ### generators.py
-这个是经我改善后的第三方图像生成器，对比自带的生成器多了颜色转换增强的方法stain_transformation,按需使用，具体代码如下：
+这个是经我改善后的第三方图像生成器,对比自带的生成器多了颜色转换增强的方法stain_transformation(基于`opencv`),按需使用，具体代码如下：
 ```python
 class DataGenerator(object):
     def __init__(self,
@@ -53,14 +53,64 @@ class DataGenerator(object):
     	# 前略
         if self.stain_transformation:
             if np.random.random() > 0.5: #也可以根据实际情况，把这个条件改为True
-                x = color.rgb2hed(x)
-                scale = np.random.uniform(low = 0.95, high = 1.05)
-                x = scale * x
-                x = color.hed2rgb(x)
+                x = cv2.cvtColor(np.uint8(x),cv2.COLOR_RGB2HSV)
+                scale = np.random.uniform(low = 0.98, high = 1.18)
+                x[:,:,0] = x[:,:,0] * scale
+                x = cv2.cvtColor(np.uint8(x),cv2.COLOR_HSV2RGB)
             else:
                 pass
 ```
 同样地，有需要的话请自行在项目中import。
+
+
+### grad_cam.py
+这个是用于生成指定网络的指定layer的卷积和梯度输出特征可视化的脚本,核心方法如下：
+```python
+def grad_cam(model, x, category_index, layer_name):
+    """
+    Args:
+       model: model
+       x: image input
+       category_index: category index
+       layer_name: last convolution layer name
+    """
+    # get category loss
+    class_output = model.output[:, category_index]
+
+    # layer output
+    convolution_output = model.get_layer(layer_name).output
+    # get gradients
+    grads = K.gradients(class_output, convolution_output)[0]
+    # get convolution output and gradients for input
+    gradient_function = K.function([model.input], [convolution_output, grads])
+
+    output, grads_val = gradient_function([x])
+    output, grads_val = output[0], grads_val[0]
+
+    # avg
+    if np.sum(np.unique(grads_val) == np.array([0])) != 1:
+        weights = np.mean(grads_val, axis=2)
+        cam = np.dot(np.mean(output,axis=2), weights.T)
+    else:
+        cam = np.mean(output,axis=2)
+    # create heat map
+    cam = cv2.resize(cam, (x.shape[2], x.shape[1]), cv2.INTER_CUBIC)
+    cam = np.maximum(cam, 0)
+    heatmap = cam / np.max(cam)
+
+    # Return to BGR [0..255] from the preprocessed image
+    image_rgb = x[0, :]
+    image_rgb -= np.min(image_rgb)
+    image_rgb = np.minimum(image_rgb, 255)
+
+    cam = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_COOL)
+    cam = np.float32(cam) + np.float32(image_rgb)
+    cam = 255 * cam / np.max(cam)
+    return np.uint8(cam), heatmap
+```
+该方法一次只能接受 **(1,h,w,3)** 这样的numpy array进行预测,仅支持指定非`flatten`后的layer,最终生成的cam图是通过所指定的feature map在axis=2维度上进行求均值而得出的。由于部分图像提取出来的梯度有时候是0,直接融合的话会使得整个cam图清零,因此只有在非0的时候才会将梯度融合到输出结果中。其中配色方案**cv2.COLORMAP_COOL**可酌情选择其他的,具体可以参考这个链接:
+https://blog.csdn.net/u013381011/article/details/78341861
+
 
 ### losses.py
 根据ICIAR2018_BACH_Challenge乳腺癌分类比赛项目而新写的loss函数，假设你的场景也是这样：分类标签的数字大小能代表错分类的容忍度关系，假设有0,1,2,3四类(简而言之，0是绝对正常，此外越往上越严重)，可以相对容忍类别高的预测成类别低的(如1类预测为0类，3类预测成1类等)，但不能容忍类别低的预测成类别高的，对此情况需要进行额外的惩罚，(如1类预测成2类，0类预测成3类)，其中低类别预测为高类别的，惩罚要比低列表预测为次高类别的更甚(以两者的差的绝对值作为惩罚标准)。
